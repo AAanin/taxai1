@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Chat } from '@google/genai';
+import { Analytics } from '@vercel/analytics/react';
 import { type ChatMessage, Sender } from './types';
 import { createAninChatSession } from './services/geminiService';
 import ChatMessageComponent from './components/ChatMessage';
@@ -211,6 +212,7 @@ const App: React.FC = () => {
            </div>
         </div>
       </footer>
+      <Analytics />
     </div>
   );
 };
