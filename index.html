@@ -1,26 +1,32 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-g" />
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Anin - AI Tax Lawyer & Advisor</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script type="importmap">
-{
-  "imports": {
-    "react": "https://aistudiocdn.com/react@^19.1.1",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
-    "react/": "https://aistudiocdn.com/react@^19.1.1/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.16.0"
-  }
-}
-</script>
-<link rel="stylesheet" href="/index.css">
-</head>
-  <body class="bg-gray-100">
+    <title>ডা.মিমু (Dr.Mimu) - AI Medical Assistant</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+Bengali:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <meta name="description" content="ডা.মিমু - বাংলাদেশের জন্য AI চিকিৎসা সহায়ক। রোগ নির্ণয়, চিকিৎসা পরামর্শ এবং স্বাস্থ্য সেবা।" />
+  </head>
+  <body>
     <div id="root"></div>
-  <script type="module" src="/index.tsx"></script>
-</body>
+    <script>
+      // Buffer polyfill for browser environment
+      if (typeof global === 'undefined') {
+        var global = globalThis;
+      }
+      if (typeof Buffer === 'undefined') {
+        // Simple Buffer polyfill
+        window.Buffer = {
+          from: function(data) { return new Uint8Array(data); },
+          alloc: function(size) { return new Uint8Array(size); },
+          isBuffer: function(obj) { return obj instanceof Uint8Array; }
+        };
+        global.Buffer = window.Buffer;
+      }
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>
