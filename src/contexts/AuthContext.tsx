@@ -1,123 +1,199 @@
-// React এবং প্রয়োজনীয় হুক ইমপোর্ট
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { User, Session, AuthError } from '@supabase/supabase-js';
+import { supabase } from '../lib/supabase';
+import { toast } from 'sonner';
 
-// Google ইউজারের তথ্যের জন্য ইন্টারফেস
-interface GoogleUser {
-  id: string;          // ইউজার আইডি
-  name: string;        // পূর্ণ নাম
-  email: string;       // ইমেইল ঠিকানা
-  picture: string;     // প্রোফাইল ছবির URL
-  given_name: string;  // প্রথম নাম
-  family_name: string; // পারিবারিক নাম
-}
-
-// ইউজারের অতিরিক্ত তথ্যের জন্য ইন্টারফেস
-interface UserInfo {
-  whatsappNumber: string;              // হোয়াটসঅ্যাপ নম্বর
-  mobileNumber: string;                // মোবাইল নম্বর
-  address: string;                     // ঠিকানা
-  emergencyContact: string;            // জরুরি যোগাযোগ
-  dateOfBirth: string;                 // জন্ম তারিখ
-  gender: string;                      // লিঙ্গ
-  bloodGroup: string;                  // রক্তের গ্রুপ
-  enableWhatsappNotifications: boolean; // হোয়াটসঅ্যাপ নোটিফিকেশন সক্রিয়
-  enableFirebaseNotifications: boolean; // Firebase নোটিফিকেশন সক্রিয়
-}
-
-// অথেন্টিকেশন কনটেক্সটের টাইপ ডেফিনিশন
 interface AuthContextType {
-  user: GoogleUser | null;                    // বর্তমান ইউজার
-  userInfo: UserInfo | null;                  // ইউজারের অতিরিক্ত তথ্য
-  isAuthenticated: boolean;                   // অথেন্টিকেশন স্ট্যাটাস
-  isLoading: boolean;                         // লোডিং স্ট্যাটাস
-  needsUserInfo: boolean;                     // ইউজার তথ্য প্রয়োজন কিনা
-  login: (user: GoogleUser) => void;          // লগইন ফাংশন
-  logout: () => void;                         // লগআউট ফাংশন
-  saveUserInfo: (info: UserInfo) => void;     // ইউজার তথ্য সেভ ফাংশন
+  user: User | null;
+  session: Session | null;
+  loading: boolean;
+  signUp: (email: string, password: string, userData?: any) => Promise<{ user: User | null; error: AuthError | null }>;
+  signIn: (email: string, password: string) => Promise<{ user: User | null; error: AuthError | null }>;
+  signOut: () => Promise<void>;
+  resetPassword: (email: string) => Promise<{ error: AuthError | null }>;
+  updateProfile: (updates: any) => Promise<{ error: AuthError | null }>;
 }
 
-// অথেন্টিকেশন কনটেক্সট তৈরি
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// AuthProvider কম্পোনেন্টের প্রপস ইন্টারফেস
-interface AuthProviderProps {
-  children: ReactNode;  // চাইল্ড কম্পোনেন্টসমূহ
-}
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
 
-// অথেন্টিকেশন প্রোভাইডার কম্পোনেন্ট
-export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  // স্টেট ভেরিয়েবলসমূহ
-  const [user, setUser] = useState<GoogleUser | null>(null);        // ইউজার তথ্য
-  const [userInfo, setUserInfo] = useState<UserInfo | null>(null);  // অতিরিক্ত ইউজার তথ্য
-  const [isLoading, setIsLoading] = useState(true);                 // লোডিং স্ট্যাটাস
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // localStorage থেকে সেভ করা ইউজার তথ্য চেক করা
-    const savedUser = localStorage.getItem('medical_app_user');       // সেভ করা ইউজার
-    const savedUserInfo = localStorage.getItem('medical_app_userInfo'); // সেভ করা ইউজার তথ্য
-    
-    // সেভ করা ইউজার তথ্য পার্স করা
-    if (savedUser) {
-      try {
-        const parsedUser = JSON.parse(savedUser);
-        setUser(parsedUser);  // ইউজার সেট করা
-      } catch (error) {
-        console.error('Error parsing saved user:', error);  // পার্সিং ত্রুটি
-        localStorage.removeItem('medical_app_user');        // ভুল ডেটা মুছে ফেলা
+    // Get initial session
+    const getInitialSession = async () => {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error) {
+        console.error('Error getting session:', error);
+      } else {
+        setSession(session);
+        setUser(session?.user ?? null);
       }
-    }
-    
-    // সেভ করা ইউজার তথ্য পার্স করা
-    if (savedUserInfo) {
-      try {
-        setUserInfo(JSON.parse(savedUserInfo));  // ইউজার তথ্য সেট করা
-      } catch (error) {
-        console.error('Error parsing saved user info:', error);  // পার্সিং ত্রুটি
-        localStorage.removeItem('medical_app_userInfo');          // ভুল ডেটা মুছে ফেলা
+      setLoading(false);
+    };
+
+    getInitialSession();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('Auth state changed:', event, session?.user?.email);
+        setSession(session);
+        setUser(session?.user ?? null);
+        setLoading(false);
+
+        // Handle different auth events
+        switch (event) {
+          case 'SIGNED_IN':
+            toast.success('সফলভাবে লগইন হয়েছে!');
+            break;
+          case 'SIGNED_OUT':
+            toast.success('সফলভাবে লগআউট হয়েছে!');
+            break;
+          case 'PASSWORD_RECOVERY':
+            toast.success('পাসওয়ার্ড রিসেট লিঙ্ক পাঠানো হয়েছে!');
+            break;
+          case 'USER_UPDATED':
+            toast.success('প্রোফাইল আপডেট হয়েছে!');
+            break;
+        }
       }
-    }
-    
-    setIsLoading(false);  // লোডিং শেষ
+    );
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
-  // লগইন ফাংশন
-  const login = (userData: GoogleUser) => {
-    setUser(userData);  // ইউজার সেট করা
-    localStorage.setItem('medical_app_user', JSON.stringify(userData));  // localStorage এ সেভ
-  };
+  const signUp = async (email: string, password: string, userData?: any) => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: userData || {}
+        }
+      });
 
-  // লগআউট ফাংশন
-  const logout = () => {
-    setUser(null);     // ইউজার ক্লিয়ার করা
-    setUserInfo(null); // ইউজার তথ্য ক্লিয়ার করা
-    localStorage.removeItem('medical_app_user');     // localStorage থেকে ইউজার মুছে ফেলা
-    localStorage.removeItem('medical_app_userInfo'); // localStorage থেকে ইউজার তথ্য মুছে ফেলা
-    
-    // Google থেকে সাইন আউট
-    if (window.google && window.google.accounts) {
-      window.google.accounts.id.disableAutoSelect();  // Google auto-select বন্ধ করা
+      if (error) {
+        toast.error(`রেজিস্ট্রেশন ব্যর্থ: ${error.message}`);
+        return { user: null, error };
+      }
+
+      if (data.user && !data.user.email_confirmed_at) {
+        toast.success('রেজিস্ট্রেশন সফল! আপনার ইমেইল যাচাই করুন।');
+      }
+
+      return { user: data.user, error: null };
+    } catch (error) {
+      console.error('Sign up error:', error);
+      toast.error('রেজিস্ট্রেশনে সমস্যা হয়েছে');
+      return { user: null, error: error as AuthError };
+    } finally {
+      setLoading(false);
     }
   };
 
-  // ইউজার তথ্য সেভ ফাংশন
-  const saveUserInfo = (info: UserInfo) => {
-    setUserInfo(info);  // ইউজার তথ্য সেট করা
-    localStorage.setItem('medical_app_userInfo', JSON.stringify(info));  // localStorage এ সেভ
+  const signIn = async (email: string, password: string) => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (error) {
+        toast.error(`লগইন ব্যর্থ: ${error.message}`);
+        return { user: null, error };
+      }
+
+      return { user: data.user, error: null };
+    } catch (error) {
+      console.error('Sign in error:', error);
+      toast.error('লগইনে সমস্যা হয়েছে');
+      return { user: null, error: error as AuthError };
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // কনটেক্সট ভ্যালু অবজেক্ট
-  const value: AuthContextType = {
-    user,                                    // বর্তমান ইউজার
-    userInfo,                               // ইউজারের অতিরিক্ত তথ্য
-    isAuthenticated: !!user,                // অথেন্টিকেশন স্ট্যাটাস (ইউজার আছে কিনা)
-    isLoading,                              // লোডিং স্ট্যাটাস
-    needsUserInfo: !!user && !userInfo,     // ইউজার তথ্য প্রয়োজন কিনা
-    login,                                  // লগইন ফাংশন
-    logout,                                 // লগআউট ফাংশন
-    saveUserInfo,                           // ইউজার তথ্য সেভ ফাংশন
+  const signOut = async () => {
+    try {
+      setLoading(true);
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        toast.error(`লগআউট ব্যর্থ: ${error.message}`);
+      }
+    } catch (error) {
+      console.error('Sign out error:', error);
+      toast.error('লগআউটে সমস্যা হয়েছে');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // কনটেক্সট প্রোভাইডার রিটার্ন
+  const resetPassword = async (email: string) => {
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`
+      });
+
+      if (error) {
+        toast.error(`পাসওয়ার্ড রিসেট ব্যর্থ: ${error.message}`);
+        return { error };
+      }
+
+      toast.success('পাসওয়ার্ড রিসেট লিঙ্ক আপনার ইমেইলে পাঠানো হয়েছে');
+      return { error: null };
+    } catch (error) {
+      console.error('Reset password error:', error);
+      toast.error('পাসওয়ার্ড রিসেটে সমস্যা হয়েছে');
+      return { error: error as AuthError };
+    }
+  };
+
+  const updateProfile = async (updates: any) => {
+    try {
+      setLoading(true);
+      const { error } = await supabase.auth.updateUser(updates);
+
+      if (error) {
+        toast.error(`প্রোফাইল আপডেট ব্যর্থ: ${error.message}`);
+        return { error };
+      }
+
+      return { error: null };
+    } catch (error) {
+      console.error('Update profile error:', error);
+      toast.error('প্রোফাইল আপডেটে সমস্যা হয়েছে');
+      return { error: error as AuthError };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const value = {
+    user,
+    session,
+    loading,
+    signUp,
+    signIn,
+    signOut,
+    resetPassword,
+    updateProfile
+  };
+
   return (
     <AuthContext.Provider value={value}>
       {children}
@@ -125,14 +201,4 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   );
 };
 
-// অথেন্টিকেশন হুক - কনটেক্সট ব্যবহারের জন্য
-export const useAuth = (): AuthContextType => {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');  // ত্রুটি বার্তা
-  }
-  return context;
-};
-
-// ডিফল্ট এক্সপোর্ট
-export default AuthContext;
+export default AuthProvider;

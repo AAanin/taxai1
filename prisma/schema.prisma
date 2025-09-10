@@ -12,69 +12,76 @@ datasource db {
 
 // User model for authentication and profile
 model User {
-  id        String   @id @default(cuid())
+  id        String   @id @db.Uuid
   email     String   @unique
   name      String?
   phone     String?
   avatar    String?
-  dateOfBirth DateTime?
+  dateOfBirth DateTime? @map("date_of_birth") @db.Date
   gender    String?
   address   String?
-  emergencyContact String?
-  bloodGroup String?
+  emergencyContact String? @map("emergency_contact")
+  bloodGroup String? @map("blood_group")
   allergies String[]
-  chronicConditions String[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  chronicConditions String[] @map("chronic_conditions")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
   medicalRecords MedicalRecord[]
-  prescriptions  Prescription[]
   appointments   Appointment[]
   medicineReminders MedicineReminder[]
-  reports        Report[]
   chatSessions   ChatSession[]
+  chatMessages   ChatMessage[]
+  medicineLogs   MedicineLog[]
+  healthMetrics  HealthMetric[]
+  notifications  Notification[]
+  chatAnalytics  ChatAnalytic[]
 
   @@map("users")
 }
 
 // Doctor model
 model Doctor {
-  id          String   @id @default(cuid())
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   name        String
-  email       String   @unique
-  phone       String?
-  specialization String
-  qualification String?
-  experience  Int?
-  hospital    String?
+  specialty   String
+  qualifications String[]
+  experienceYears Int? @map("experience_years")
+  hospitalName String? @map("hospital_name")
   address     String?
-  consultationFee Decimal?
-  rating      Float?   @default(0)
-  isAvailable Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // Relations
-  appointments Appointment[]
-  prescriptions Prescription[]
+  phone       String?
+  email       String?
+  consultationFee Decimal? @map("consultation_fee")
+  availableDays String[] @map("available_days")
+  availableTimes Json @default("{}") @map("available_times")
+  rating      Decimal @default(0.00)
+  totalReviews Int @default(0) @map("total_reviews")
+  isVerified  Boolean @default(false) @map("is_verified")
+  isActive    Boolean @default(true) @map("is_active")
+  metadata    Json @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@map("doctors")
 }
 
 // Medical Record model
 model MedicalRecord {
-  id          String   @id @default(cuid())
-  userId      String
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  recordType  String   @map("record_type")
   title       String
-  description String
-  diagnosis   String?
-  symptoms    String[]
-  treatment   String?
-  notes       String?
-  recordDate  DateTime @default(now())
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  description String?
+  fileUrl     String?  @map("file_url")
+  fileType    String?  @map("file_type")
+  doctorName  String?  @map("doctor_name")
+  hospitalName String? @map("hospital_name")
+  dateRecorded DateTime @map("date_recorded") @db.Date
+  tags        String[]
+  metadata    Json @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   // Relations
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -82,169 +89,110 @@ model MedicalRecord {
   @@map("medical_records")
 }
 
-// Prescription model
-model Prescription {
-  id          String   @id @default(cuid())
-  userId      String
-  doctorId    String?
-  title       String
-  medicines   PrescriptionMedicine[]
-  instructions String?
-  diagnosis   String?
-  prescriptionDate DateTime @default(now())
-  validUntil  DateTime?
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // Relations
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  doctor      Doctor?  @relation(fields: [doctorId], references: [id])
-
-  @@map("prescriptions")
-}
-
 // Medicine model
 model Medicine {
-  id          String   @id @default(cuid())
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   name        String
-  genericName String?
-  brand       String?
-  category    String?
-  dosageForm  String?  // tablet, capsule, syrup, etc.
+  genericName String?  @map("generic_name")
+  brandNames  String[] @map("brand_names")
+  category    String
+  dosageForms String[] @map("dosage_forms")
   strength    String?
-  manufacturer String?
-  price       Decimal?
-  description String?
-  sideEffects String[]
+  indications String[]
   contraindications String[]
-  isAvailable Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // Relations
-  prescriptionMedicines PrescriptionMedicine[]
-  medicineReminders     MedicineReminder[]
+  sideEffects String[] @map("side_effects")
+  interactions String[]
+  pregnancyCategory String? @map("pregnancy_category")
+  priceRange  String?  @map("price_range")
+  prescriptionRequired Boolean @default(true) @map("prescription_required")
+  isAvailable Boolean  @default(true) @map("is_available")
+  metadata    Json @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   @@map("medicines")
 }
 
-// Junction table for Prescription and Medicine
-model PrescriptionMedicine {
-  id             String   @id @default(cuid())
-  prescriptionId String
-  medicineId     String
-  dosage         String   // e.g., "1 tablet"
-  frequency      String   // e.g., "twice daily"
-  duration       String   // e.g., "7 days"
-  instructions   String?
-  createdAt      DateTime @default(now())
-
-  // Relations
-  prescription   Prescription @relation(fields: [prescriptionId], references: [id], onDelete: Cascade)
-  medicine       Medicine     @relation(fields: [medicineId], references: [id])
-
-  @@unique([prescriptionId, medicineId])
-  @@map("prescription_medicines")
-}
-
 // Medicine Reminder model
 model MedicineReminder {
-  id          String   @id @default(cuid())
-  userId      String
-  medicineId  String
-  medicineName String
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  medicineName String  @map("medicine_name")
   dosage      String
   frequency   String
-  startDate   DateTime
-  endDate     DateTime?
-  reminderTimes String[] // Array of time strings like ["08:00", "20:00"]
-  isActive    Boolean  @default(true)
-  notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  startDate   DateTime @map("start_date") @db.Date
+  endDate     DateTime? @map("end_date") @db.Date
+  reminderTimes DateTime[] @map("reminder_times") @db.Time
+  instructions String?
+  status      String   @default("active")
+  adherenceRate Decimal @default(0.00) @map("adherence_rate")
+  metadata    Json @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   // Relations
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  medicine    Medicine @relation(fields: [medicineId], references: [id])
+  medicineLogs MedicineLog[]
 
   @@map("medicine_reminders")
 }
 
 // Appointment model
 model Appointment {
-  id          String   @id @default(cuid())
-  userId      String
-  doctorId    String
-  title       String?
-  description String?
-  appointmentDate DateTime
-  duration    Int?     // in minutes
-  status      AppointmentStatus @default(SCHEDULED)
-  type        AppointmentType   @default(CONSULTATION)
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  doctorName  String   @map("doctor_name")
+  doctorSpecialty String? @map("doctor_specialty")
+  hospitalName String? @map("hospital_name")
+  appointmentDate DateTime @map("appointment_date") @db.Date
+  appointmentTime DateTime @map("appointment_time") @db.Time
+  appointmentType String? @map("appointment_type")
+  status      String   @default("scheduled")
+  symptoms    String?
   notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  reminderSent Boolean @default(false) @map("reminder_sent")
+  metadata    Json @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   // Relations
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  doctor      Doctor   @relation(fields: [doctorId], references: [id])
 
   @@map("appointments")
 }
 
-// Report model for medical reports and test results
-model Report {
-  id          String   @id @default(cuid())
-  userId      String
-  title       String
-  type        ReportType
-  description String?
-  fileUrl     String?
-  fileName    String?
-  fileSize    Int?
-  reportDate  DateTime @default(now())
-  labName     String?
-  doctorName  String?
-  results     Json?    // Store structured test results
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // Relations
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@map("reports")
-}
-
 // Chat Session model for AI conversations
 model ChatSession {
-  id          String   @id @default(cuid())
-  userId      String
-  title       String?
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  sessionName String?  @map("session_name")
   language    String   @default("bn")
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  status      String   @default("active")
+  metadata    Json @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   // Relations
   user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages    ChatMessage[]
+  analytics   ChatAnalytic[]
 
   @@map("chat_sessions")
 }
 
 // Chat Message model
 model ChatMessage {
-  id            String   @id @default(cuid())
-  sessionId     String
+  id            String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  sessionId     String   @map("session_id") @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  messageType   String   @map("message_type")
   content       String
-  sender        MessageSender
-  language      String   @default("bn")
-  metadata      Json?    // Store additional message metadata
-  createdAt     DateTime @default(now())
+  metadata      Json @default("{}")
+  createdAt     DateTime @default(now()) @map("created_at")
 
   // Relations
   session       ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user          User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("chat_messages")
 }
@@ -258,7 +206,7 @@ model Hospital {
   email       String?
   website     String?
   type        String?  // government, private, specialized
-  services    String[]
+  services    String?
   emergencyServices Boolean @default(false)
   rating      Float?   @default(0)
   latitude    Float?
@@ -307,7 +255,7 @@ model HealthTip {
   content     String
   category    String   // diet, exercise, mental_health, etc.
   language    String   @default("bn")
-  tags        String[]
+  tags        String?
   isActive    Boolean  @default(true)
   priority    Int      @default(0)
   createdAt   DateTime @default(now())
@@ -316,39 +264,80 @@ model HealthTip {
   @@map("health_tips")
 }
 
-// Enums
-enum AppointmentStatus {
-  SCHEDULED
-  CONFIRMED
-  IN_PROGRESS
-  COMPLETED
-  CANCELLED
-  NO_SHOW
+// Medicine Log model
+model MedicineLog {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  reminderId  String   @map("reminder_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  scheduledTime DateTime @map("scheduled_time")
+  takenTime   DateTime? @map("taken_time")
+  status      String
+  notes       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  reminder    MedicineReminder @relation(fields: [reminderId], references: [id], onDelete: Cascade)
+  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("medicine_logs")
 }
 
-enum AppointmentType {
-  CONSULTATION
-  FOLLOW_UP
-  EMERGENCY
-  CHECKUP
-  VACCINATION
+// Health Metric model
+model HealthMetric {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  metricType  String   @map("metric_type")
+  value       Decimal
+  unit        String
+  recordedDate DateTime @map("recorded_date") @db.Date
+  recordedTime DateTime? @map("recorded_time") @db.Time @default(dbgenerated("CURRENT_TIME"))
+  notes       String?
+  metadata    Json @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("health_metrics")
 }
 
-enum ReportType {
-  BLOOD_TEST
-  URINE_TEST
-  X_RAY
-  MRI
-  CT_SCAN
-  ECG
-  ULTRASOUND
-  PRESCRIPTION
-  MEDICAL_CERTIFICATE
-  OTHER
+// Notification model
+model Notification {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  type        String
+  title       String
+  message     String
+  isRead      Boolean  @default(false) @map("is_read")
+  scheduledFor DateTime? @map("scheduled_for")
+  sentAt      DateTime? @map("sent_at")
+  metadata    Json @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
 }
 
-enum MessageSender {
-  USER
-  BOT
-  DOCTOR
+// Chat Analytics model
+model ChatAnalytic {
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  userId      String?  @map("user_id") @db.Uuid
+  sessionId   String?  @map("session_id") @db.Uuid
+  queryText   String   @map("query_text")
+  responseText String? @map("response_text")
+  queryCategory String? @map("query_category")
+  responseTimeMs Int?  @map("response_time_ms")
+  modelUsed   String?  @map("model_used")
+  language    String   @default("bn")
+  satisfactionRating Int? @map("satisfaction_rating")
+  metadata    Json @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  user        User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session     ChatSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@map("chat_analytics")
 }

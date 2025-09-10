@@ -5,6 +5,11 @@ import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import MainPage from './pages/MainPage.tsx';
 import ChatPage from './pages/ChatPage.tsx';
+import LoginPage from './pages/auth/LoginPage.tsx';
+import RegisterPage from './pages/auth/RegisterPage.tsx';
+import DashboardPage from './pages/DashboardPage.tsx';
+import AppointmentsPage from './pages/AppointmentsPage.tsx';
+import PrescriptionsPage from './pages/PrescriptionsPage.tsx';
 import MedicalTestSystem from './components/MedicalTestSystem.tsx';
 import DoctorDashboard from './components/DoctorDashboard.tsx';
 import DoctorAuth from './components/DoctorAuth.tsx';
@@ -28,6 +33,11 @@ function App() {
           <ErrorBoundary>
             <Routes>
             <Route path="/" element={<MainPage />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/appointments" element={<AppointmentsPage />} />
+            <Route path="/prescriptions" element={<PrescriptionsPage />} />
             <Route path="/chat" element={<ChatPage />} />
             <Route path="/medical-tests" element={<MedicalTestSystem />} />
             <Route path="/patient-portal" element={<PatientPortal />} />

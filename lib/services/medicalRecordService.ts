@@ -1,83 +1,134 @@
-// Medical Record Service - CRUD operations for Medical Records
-// Handles patient medical history, diagnoses, treatments, and symptoms
+// Medical Record Service
+// Handles all medical record-related database operations
 
-import { prisma } from '../prisma';
-import { MedicalRecord, Prisma } from '@prisma/client';
+import { supabase } from '../supabase';
+import type { Database } from '../supabase';
 
+// Types
 export interface CreateMedicalRecordData {
   userId: string;
+  recordType: string;
   title: string;
-  description: string;
-  diagnosis?: string;
-  symptoms?: string[];
-  treatment?: string;
-  notes?: string;
-  recordDate?: Date;
+  description?: string;
+  fileUrl?: string;
+  fileType?: string;
+  doctorName?: string;
+  hospitalName?: string;
+  dateRecorded: string; // Date in YYYY-MM-DD format
+  tags?: string[];
+  metadata?: any;
 }
 
 export interface UpdateMedicalRecordData {
+  recordType?: string;
   title?: string;
   description?: string;
-  diagnosis?: string;
-  symptoms?: string[];
-  treatment?: string;
-  notes?: string;
-  recordDate?: Date;
+  fileUrl?: string;
+  fileType?: string;
+  doctorName?: string;
+  hospitalName?: string;
+  dateRecorded?: string;
+  tags?: string[];
+  metadata?: any;
 }
 
-export interface MedicalRecordWithUser extends MedicalRecord {
-  user: {
+export interface MedicalRecordWithUser {
+  id: string;
+  user_id: string;
+  record_type: string;
+  title: string;
+  description?: string;
+  file_url?: string;
+  file_type?: string;
+  doctor_name?: string;
+  hospital_name?: string;
+  date_recorded: string;
+  tags: string[];
+  metadata: any;
+  created_at: string;
+  updated_at: string;
+  user?: {
     id: string;
-    name: string | null;
     email: string;
+    name?: string;
   };
 }
 
 class MedicalRecordService {
   // Create a new medical record
-  async createMedicalRecord(data: CreateMedicalRecordData): Promise<MedicalRecord> {
+  async createMedicalRecord(data: CreateMedicalRecordData): Promise<MedicalRecordWithUser> {
     try {
-      const medicalRecord = await prisma.medicalRecord.create({
-        data: {
-          userId: data.userId,
+      // Verify user exists
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .select('id')
+        .eq('id', data.userId)
+        .single();
+
+      if (userError || !user) {
+        throw new Error('User not found');
+      }
+
+      const { data: record, error } = await supabase
+        .from('medical_records')
+        .insert({
+          user_id: data.userId,
+          record_type: data.recordType,
           title: data.title,
           description: data.description,
-          diagnosis: data.diagnosis,
-          symptoms: data.symptoms || [],
-          treatment: data.treatment,
-          notes: data.notes,
-          recordDate: data.recordDate || new Date(),
-        },
-      });
-      return medicalRecord;
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError) {
-        if (error.code === 'P2003') {
-          throw new Error('User not found');
-        }
+          file_url: data.fileUrl,
+          file_type: data.fileType,
+          doctor_name: data.doctorName,
+          hospital_name: data.hospitalName,
+          date_recorded: data.dateRecorded,
+          tags: data.tags || [],
+          metadata: data.metadata || {},
+        })
+        .select('*')
+        .single();
+
+      if (error) {
+        throw new Error(`Failed to create medical record: ${error.message}`);
       }
-      throw new Error(`Failed to create medical record: ${error}`);
+
+      return record;
+    } catch (error) {
+      console.error('Error creating medical record:', error);
+      throw error;
     }
   }
 
   // Get medical record by ID
-  async getMedicalRecordById(id: string, includeUser = false): Promise<MedicalRecordWithUser | MedicalRecord | null> {
+  async getMedicalRecordById(id: string, includeUser = false): Promise<MedicalRecordWithUser | null> {
     try {
-      const medicalRecord = await prisma.medicalRecord.findUnique({
-        where: { id },
-        include: includeUser ? {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
-          },
-        } : undefined,
-      });
-      return medicalRecord;
+      let query = supabase
+        .from('medical_records')
+        .select('*')
+        .eq('id', id);
+
+      if (includeUser) {
+        query = supabase
+          .from('medical_records')
+          .select(`
+            *,
+            user:users(id, email, name)
+          `)
+          .eq('id', id);
+      }
+
+      const { data: record, error } = await query.single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
+          return null; // Record not found
+        }
+        throw new Error(`Failed to fetch medical record: ${error.message}`);
+      }
+
+      return record;
     } catch (error) {
-      throw new Error(`Failed to get medical record: ${error}`);
+      console.error('Error fetching medical record:', error);
+      throw error;
     }
   }
 
@@ -109,44 +160,61 @@ class MedicalRecordService {
   }
 
   // Update medical record
-  async updateMedicalRecord(id: string, data: UpdateMedicalRecordData): Promise<MedicalRecord> {
+  async updateMedicalRecord(id: string, data: UpdateMedicalRecordData): Promise<MedicalRecordWithUser> {
     try {
-      const medicalRecord = await prisma.medicalRecord.update({
-        where: { id },
-        data: {
-          title: data.title,
-          description: data.description,
-          diagnosis: data.diagnosis,
-          symptoms: data.symptoms,
-          treatment: data.treatment,
-          notes: data.notes,
-          recordDate: data.recordDate,
-        },
-      });
-      return medicalRecord;
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError) {
-        if (error.code === 'P2025') {
+      const updateData: any = {};
+      
+      if (data.recordType !== undefined) updateData.record_type = data.recordType;
+      if (data.title !== undefined) updateData.title = data.title;
+      if (data.description !== undefined) updateData.description = data.description;
+      if (data.fileUrl !== undefined) updateData.file_url = data.fileUrl;
+      if (data.fileType !== undefined) updateData.file_type = data.fileType;
+      if (data.doctorName !== undefined) updateData.doctor_name = data.doctorName;
+      if (data.hospitalName !== undefined) updateData.hospital_name = data.hospitalName;
+      if (data.dateRecorded !== undefined) updateData.date_recorded = data.dateRecorded;
+      if (data.tags !== undefined) updateData.tags = data.tags;
+      if (data.metadata !== undefined) updateData.metadata = data.metadata;
+      
+      updateData.updated_at = new Date().toISOString();
+
+      const { data: record, error } = await supabase
+        .from('medical_records')
+        .update(updateData)
+        .eq('id', id)
+        .select('*')
+        .single();
+
+      if (error) {
+        if (error.code === 'PGRST116') {
           throw new Error('Medical record not found');
         }
+        throw new Error(`Failed to update medical record: ${error.message}`);
       }
-      throw new Error(`Failed to update medical record: ${error}`);
+
+      return record;
+    } catch (error) {
+      console.error('Error updating medical record:', error);
+      throw error;
     }
   }
 
   // Delete medical record
   async deleteMedicalRecord(id: string): Promise<void> {
     try {
-      await prisma.medicalRecord.delete({
-        where: { id },
-      });
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError) {
-        if (error.code === 'P2025') {
+      const { error } = await supabase
+        .from('medical_records')
+        .delete()
+        .eq('id', id);
+
+      if (error) {
+        if (error.code === 'PGRST116') {
           throw new Error('Medical record not found');
         }
+        throw new Error(`Failed to delete medical record: ${error.message}`);
       }
-      throw new Error(`Failed to delete medical record: ${error}`);
+    } catch (error) {
+      console.error('Error deleting medical record:', error);
+      throw error;
     }
   }
 

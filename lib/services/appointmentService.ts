@@ -2,7 +2,23 @@
 // Handles appointment scheduling, management, and doctor-patient interactions
 
 import { prisma } from '../prisma';
-import { Appointment, AppointmentStatus, AppointmentType, Prisma } from '@prisma/client';
+import { Appointment, Prisma } from '@prisma/client';
+
+// Define enums locally since they're not in the schema
+export enum AppointmentStatus {
+  SCHEDULED = 'scheduled',
+  CONFIRMED = 'confirmed',
+  COMPLETED = 'completed',
+  CANCELLED = 'cancelled',
+  RESCHEDULED = 'rescheduled'
+}
+
+export enum AppointmentType {
+  CONSULTATION = 'consultation',
+  FOLLOW_UP = 'follow_up',
+  EMERGENCY = 'emergency',
+  ROUTINE_CHECKUP = 'routine_checkup'
+}
 
 export interface CreateAppointmentData {
   userId: string;

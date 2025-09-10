@@ -52,12 +52,19 @@ export interface SemanticCacheEntry {
   };
 }
 
-// Redis LangChain Cache Service
+// Redis LangChain Cache Service with Enhanced Performance
 export class RedisCacheService {
   private static instance: RedisCacheService;
   private langchainCache: RedisCache | null = null;
+  private semanticCache: Map<string, SemanticCacheEntry> = new Map();
   private isInitialized: boolean = false;
   private isBrowserEnv: boolean;
+  private cacheStats: {
+    hits: number;
+    misses: number;
+    totalRequests: number;
+    costSavings: number;
+  } = { hits: 0, misses: 0, totalRequests: 0, costSavings: 0 };
 
   private constructor() {
     this.isBrowserEnv = typeof window !== 'undefined';
@@ -329,6 +336,184 @@ export class RedisCacheService {
     } catch (error) {
       console.error('❌ Failed to set user cache:', error);
     }
+  }
+
+  // Semantic Caching for AI Responses
+  public async setSemanticCacheAI(
+    query: string,
+    response: string,
+    metadata: Partial<SemanticCacheEntry['metadata']>
+  ): Promise<void> {
+    try {
+      if (this.isBrowserEnv || !redisClient) {
+        // Browser fallback
+        const entry: SemanticCacheEntry = {
+          query,
+          response,
+          metadata: {
+            model: metadata.model || 'unknown',
+            timestamp: Date.now(),
+            userId: metadata.userId,
+            sessionId: metadata.sessionId,
+            type: metadata.type || 'general',
+            language: metadata.language || 'en',
+            ...metadata
+          }
+        };
+        this.semanticCache.set(query, entry);
+        return;
+      }
+      
+      const cacheKey = `${CACHE_PREFIX}semantic:${this.hashQuery(query)}`;
+      const entry: SemanticCacheEntry = {
+        query,
+        response,
+        metadata: {
+          model: metadata.model || 'unknown',
+          timestamp: Date.now(),
+          userId: metadata.userId,
+          sessionId: metadata.sessionId,
+          type: metadata.type || 'general',
+          language: metadata.language || 'en',
+          ...metadata
+        }
+      };
+      
+      await redisClient.setex(cacheKey, CACHE_TTL, JSON.stringify(entry));
+    } catch (error) {
+      console.error('❌ Failed to set semantic cache:', error);
+    }
+  }
+
+  public async getSemanticCacheAI(query: string): Promise<SemanticCacheEntry | null> {
+    try {
+      this.cacheStats.totalRequests++;
+      
+      if (this.isBrowserEnv || !redisClient) {
+        // Browser fallback
+        const cached = this.semanticCache.get(query);
+        if (cached) {
+          this.cacheStats.hits++;
+          this.cacheStats.costSavings += this.estimateCostSaving(cached.metadata.model);
+          return cached;
+        }
+        this.cacheStats.misses++;
+        return null;
+      }
+      
+      const cacheKey = `${CACHE_PREFIX}semantic:${this.hashQuery(query)}`;
+      const cached = await redisClient.get(cacheKey);
+      
+      if (cached) {
+        this.cacheStats.hits++;
+        const entry = JSON.parse(cached) as SemanticCacheEntry;
+        this.cacheStats.costSavings += this.estimateCostSaving(entry.metadata.model);
+        return entry;
+      }
+      
+      this.cacheStats.misses++;
+      return null;
+    } catch (error) {
+      console.error('❌ Failed to get semantic cache:', error);
+      this.cacheStats.misses++;
+      return null;
+    }
+  }
+
+  // LLM Response Caching with Cost Optimization
+  public async cacheLLMResponse(
+    prompt: string,
+    response: string,
+    model: string,
+    metadata?: any
+  ): Promise<void> {
+    await this.setSemanticCacheAI(prompt, response, {
+      model,
+      type: 'medical_advice',
+      ...metadata
+    });
+  }
+
+  public async getCachedLLMResponse(prompt: string): Promise<string | null> {
+    const cached = await this.getSemanticCacheAI(prompt);
+    return cached ? cached.response : null;
+  }
+
+  // Chat Session Caching
+  public async setChatHistory(
+    sessionId: string,
+    messages: any[],
+    ttl?: number
+  ): Promise<void> {
+    try {
+      if (this.isBrowserEnv || !redisClient) {
+        return;
+      }
+      
+      const cacheKey = `${CACHE_PREFIX}chat:${sessionId}`;
+      await redisClient.setex(
+        cacheKey,
+        ttl || CACHE_TTL,
+        JSON.stringify(messages)
+      );
+    } catch (error) {
+      console.error('❌ Failed to cache chat history:', error);
+    }
+  }
+
+  public async getChatHistory(sessionId: string): Promise<any[] | null> {
+    try {
+      if (this.isBrowserEnv || !redisClient) {
+        return null;
+      }
+      
+      const cacheKey = `${CACHE_PREFIX}chat:${sessionId}`;
+      const cached = await redisClient.get(cacheKey);
+      return cached ? JSON.parse(cached) : null;
+    } catch (error) {
+      console.error('❌ Failed to get chat history:', error);
+      return null;
+    }
+  }
+
+  // Utility Methods
+  private hashQuery(query: string): string {
+    // Simple hash function for query caching
+    let hash = 0;
+    for (let i = 0; i < query.length; i++) {
+      const char = query.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+    return Math.abs(hash).toString(36);
+  }
+
+  private estimateCostSaving(model: string): number {
+    // Estimate cost savings based on model type
+    const costPerToken = {
+      'gpt-4': 0.03,
+      'gpt-3.5-turbo': 0.002,
+      'gemini-pro': 0.001,
+      'claude': 0.008,
+      'unknown': 0.005
+    };
+    
+    const avgTokens = 150; // Average response tokens
+    return (costPerToken[model] || costPerToken.unknown) * avgTokens;
+  }
+
+  // Performance Analytics
+  public getCacheStatsAnalytics(): typeof this.cacheStats & { hitRate: number } {
+    return {
+      ...this.cacheStats,
+      hitRate: this.cacheStats.totalRequests > 0 
+        ? (this.cacheStats.hits / this.cacheStats.totalRequests) * 100 
+        : 0
+    };
+  }
+
+  public resetCacheStats(): void {
+    this.cacheStats = { hits: 0, misses: 0, totalRequests: 0, costSavings: 0 };
   }
 
   public async getUserCache<T>(userId: string, key: string): Promise<T | null> {

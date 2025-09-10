@@ -22,18 +22,33 @@ export default defineConfig(({ mode }) => {
         output: {
           manualChunks: {
             vendor: ['react', 'react-dom'],
-            ui: ['framer-motion', 'lucide-react', 'sonner']
+            ui: ['lucide-react', 'sonner']
           }
+        },
+        external: (id) => {
+          // Handle framer-motion external dependencies
+          if (id.includes('globalThis-config')) {
+            return false;
+          }
+          return false;
         }
       },
-      chunkSizeWarningLimit: 1000
+      chunkSizeWarningLimit: 1000,
+      commonjsOptions: {
+        include: [/node_modules/]
+      }
     },
     optimizeDeps: {
       include: [
         'react',
         'react-dom',
-        'framer-motion',
-        'lucide-react'
+        'lucide-react',
+        'framer-motion > motion-utils'
+      ],
+      exclude: [
+        'redis',
+        'ioredis',
+        '@langchain/redis'
       ]
     },
     define: {
@@ -49,6 +64,8 @@ export default defineConfig(({ mode }) => {
       alias: {
         '@': path.resolve(__dirname, './src'),
         'buffer': 'buffer',
+        // Use mock for Redis packages in browser
+        '@langchain/redis': path.resolve(__dirname, './src/mocks/langchain-redis.ts'),
       },
     },
   }

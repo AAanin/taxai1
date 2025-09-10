@@ -47,5 +47,3 @@ export async function checkDatabaseHealth() {
     return { status: 'unhealthy', message: 'Database connection failed', error };
   }
 }
-
-ex

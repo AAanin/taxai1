@@ -7,10 +7,49 @@ import { ConversationChain } from 'langchain/chains'; // কথোপকথন �
 import { BufferMemory } from 'langchain/memory'; // চ্যাট হিস্টরি মেমরি ম্যানেজমেন্ট
 import { Language } from '../types'; // ভাষা টাইপ ডেফিনিশন
 
-// Redis Integration ইমপোর্ট
-import { redisCacheService } from './redisCacheService';
-import { redisMemoryService } from './redisMemoryService';
-import { redisVectorService } from './redisVectorService';
+// Redis Integration ইমপোর্ট (conditionally loaded)
+let redisCacheService: any = null;
+let redisMemoryService: any = null;
+let redisVectorService: any = null;
+let weaviateService: any = null;
+let enhancedRAGService: any = null;
+let chatCachingService: any = null;
+
+// Browser environment check
+const isBrowser = typeof window !== 'undefined';
+
+// Function to conditionally load Redis and Weaviate services
+async function loadRedisServices() {
+  if (!isBrowser) {
+    try {
+      const redisCacheModule = await import('./redisCacheService');
+      const redisMemoryModule = await import('./redisMemoryService');
+      const redisVectorModule = await import('./redisVectorService');
+      
+      redisCacheService = redisCacheModule.redisCacheService;
+      redisMemoryService = redisMemoryModule.redisMemoryService;
+      redisVectorService = redisVectorModule.redisVectorService;
+    } catch (error) {
+      console.warn('Redis services not available in browser environment');
+    }
+  }
+}
+
+// Function to conditionally load Weaviate services
+async function loadWeaviateServices() {
+  if (!isBrowser) {
+    try {
+      const weaviateModule = await import('./weaviateService');
+      const ragModule = await import('./enhancedRAGService');
+      const chatCacheModule = await import('./chatCachingService');
+      weaviateService = weaviateModule.weaviateService;
+      enhancedRAGService = ragModule.enhancedRAGService;
+      chatCachingService = chatCacheModule.chatCachingService;
+    } catch (error) {
+      console.warn('Weaviate/RAG/Chat services not available in browser environment');
+    }
+  }
+}
 import { HumanMessage, AIMessage } from '@langchain/core/messages';
 
 /**
@@ -38,8 +77,8 @@ class LangChainService {
     this.memory = new BufferMemory({
       returnMessages: true, // মেসেজ ফরম্যাটে রিটার্ন করবে
       memoryKey: 'chat_history', // মেমরি কী নাম
-      // Redis cache integration
-      cache: redisCacheService.getLangChainCache()
+      // Redis cache integration (will be set later if available)
+      cache: null
     });
     
     // Environment variables থেকে API keys স্বয়ংক্রিয়ভাবে লোড করা
@@ -50,19 +89,63 @@ class LangChainService {
   }
 
   /**
-   * Redis services ইনিশিয়ালাইজ করে
+   * Redis and Weaviate services ইনিশিয়ালাইজ করে
    */
   private async initializeRedisServices() {
     try {
-      // Redis services ready হওয়ার জন্য অপেক্ষা
+      // Load Redis and Weaviate services
       await Promise.all([
-        redisCacheService.initialize(),
-        redisMemoryService.initialize(),
-        redisVectorService.initialize()
+        loadRedisServices(),
+        loadWeaviateServices()
       ]);
-      console.log('✅ Redis services initialized for LangChain optimization');
+      
+      // Initialize Redis services
+      if (redisCacheService && redisMemoryService && redisVectorService) {
+        await Promise.all([
+          redisCacheService.initialize(),
+          redisMemoryService.initialize(),
+          redisVectorService.initialize()
+        ]);
+        
+        // Update memory with Redis cache if available
+        const cache = redisCacheService.getLangChainCache();
+        if (cache) {
+          this.memory = new BufferMemory({
+            returnMessages: true,
+            memoryKey: 'chat_history',
+            cache: cache
+          });
+        }
+        
+        console.log('✅ Redis services initialized for LangChain optimization');
+      } else {
+        console.log('ℹ️ Running without Redis optimization (browser environment)');
+      }
+      
+      // Initialize Weaviate and RAG services
+      if (weaviateService) {
+        await weaviateService.initialize();
+        console.log('✅ Weaviate service initialized for semantic search');
+      } else {
+        console.log('ℹ️ Running without Weaviate semantic search (browser environment)');
+      }
+      
+      if (enhancedRAGService) {
+        await enhancedRAGService.initialize();
+        console.log('✅ Enhanced RAG service initialized for knowledge retrieval');
+      } else {
+        console.log('ℹ️ Running without Enhanced RAG (browser environment)');
+      }
+      
+      if (chatCachingService) {
+        await chatCachingService.initialize();
+        console.log('✅ Chat Caching service initialized for session management');
+      } else {
+        console.log('ℹ️ Running without Chat Caching (browser environment)');
+      }
+      
     } catch (error) {
-      console.warn('⚠️ Redis services initialization failed, continuing without Redis optimization:', error);
+      console.warn('⚠️ Services initialization failed, continuing with limited functionality:', error);
     }
   }
 
@@ -239,61 +322,69 @@ class LangChainService {
         : 'Please enter your question or concern.';
     }
 
-    // 🚀 Redis Cache Check - প্রথমে cache থেকে response খোঁজা
-    try {
-      const cachedResponse = await redisCacheService.getSemanticCache(
-        prompt, 
-        'medical_advice', 
-        userId
-      );
-      
-      if (cachedResponse && cachedResponse.metadata.language === language) {
-        console.log('🎯 Cache hit - returning cached medical advice');
-        
-        // Store in session memory if sessionId provided
-        if (sessionId) {
-          await redisMemoryService.addMessage(
-            sessionId,
-            new HumanMessage(prompt)
-          );
-          await redisMemoryService.addMessage(
-            sessionId,
-            new AIMessage(cachedResponse.response)
-          );
+    // 🚀 Enhanced RAG + Redis Cache Check
+      try {
+        // First check Redis cache for exact matches
+        if (redisCacheService && redisCacheService.isReady()) {
+          const cachedResponse = await redisCacheService.getSemanticCacheAI(prompt);
+          
+          if (cachedResponse && cachedResponse.metadata.language === language) {
+            console.log('🎯 Cache hit - returning cached medical advice');
+            
+            // Store in session memory if sessionId provided
+            if (sessionId && redisMemoryService) {
+              await redisMemoryService.addMessage(
+                sessionId,
+                new HumanMessage(prompt)
+              );
+              await redisMemoryService.addMessage(
+                sessionId,
+                new AIMessage(cachedResponse.response)
+              );
+            }
+            
+            return cachedResponse.response;
+          }
         }
-        
-        return cachedResponse.response;
-      }
 
-      // 🔍 Semantic Search - similar cached responses খোঁজা
-      const similarResponses = await redisCacheService.findSimilarCachedQueries(
-        prompt,
-        'medical_advice',
-        0.85, // 85% similarity threshold
-        1
-      );
-      
-      if (similarResponses.length > 0 && similarResponses[0].metadata.language === language) {
-        console.log('🔍 Similar cached response found');
-        const similarResponse = similarResponses[0].response;
-        
-        // Store in session memory if sessionId provided
-        if (sessionId) {
-          await redisMemoryService.addMessage(
+        // 🔍 Enhanced RAG Search - Use Weaviate for medical knowledge
+        if (enhancedRAGService && enhancedRAGService.isReady()) {
+          console.log('🧠 Using Enhanced RAG for medical knowledge retrieval');
+          
+          const ragResponse = await enhancedRAGService.query({
+            question: prompt,
+            language,
+            userId,
             sessionId,
-            new HumanMessage(prompt)
-          );
-          await redisMemoryService.addMessage(
-            sessionId,
-            new AIMessage(similarResponse)
-          );
+            maxResults: 5,
+            minReliability: 0.7,
+            includeCache: true
+          });
+          
+          if (ragResponse.confidence > 0.6 && ragResponse.answer) {
+            console.log(`🎯 RAG response generated with ${ragResponse.confidence} confidence`);
+            
+            // Store in session memory if sessionId provided
+            if (sessionId && redisMemoryService) {
+              await redisMemoryService.addMessage(
+                sessionId,
+                new HumanMessage(prompt)
+              );
+              await redisMemoryService.addMessage(
+                sessionId,
+                new AIMessage(ragResponse.answer)
+              );
+            }
+            
+            // Cache the RAG response for future use
+            await this.cacheSuccessfulResponse(prompt, ragResponse.answer, language, userId, sessionId);
+            
+            return ragResponse.answer;
+          }
         }
-        
-        return similarResponse;
+      } catch (ragError) {
+        console.warn('⚠️ RAG/Cache error, proceeding with standard AI generation:', ragError);
       }
-    } catch (cacheError) {
-      console.warn('⚠️ Redis cache error, proceeding without cache:', cacheError);
-    }
 
     // Check if any AI model is available
     if (!this.openaiModel && !this.geminiModel) {
@@ -337,6 +428,34 @@ class LangChainService {
       
       // 💾 Cache the successful response in Redis
       await this.cacheSuccessfulResponse(prompt, result, language, userId, sessionId);
+      
+      // Store in session memory and chat cache if sessionId provided
+      if (sessionId) {
+        if (redisMemoryService) {
+          await redisMemoryService.addMessage(
+            sessionId,
+            new HumanMessage(prompt)
+          );
+          await redisMemoryService.addMessage(
+            sessionId,
+            new AIMessage(result)
+          );
+        }
+        
+        // Store in chat caching service
+        if (chatCachingService) {
+          await chatCachingService.addMessageToSession(
+            sessionId,
+            new HumanMessage(prompt),
+            userId
+          );
+          await chatCachingService.addMessageToSession(
+            sessionId,
+            new AIMessage(result),
+            userId
+          );
+        }
+      }
       
       return result;
     } catch (error) {
@@ -898,6 +1017,18 @@ Respond in a concise manner focusing on the medical specialization names in both
     }
   }
 
+
+
+  /**
+   * Get cache statistics for performance monitoring
+   */
+  getCacheStats(): any {
+    if (redisCacheService && redisCacheService.isReady()) {
+      return redisCacheService.getCacheStatsAnalytics();
+    }
+    return { hits: 0, misses: 0, totalRequests: 0, costSavings: 0, hitRate: 0 };
+  }
+
   /**
    * Redis integration status চেক করে
    * @returns Redis services এর status
@@ -908,9 +1039,9 @@ Respond in a concise manner focusing on the medical specialization names in both
     vector: boolean;
   } {
     return {
-      cache: redisCacheService.isReady(),
-      memory: redisMemoryService.isReady(),
-      vector: redisVectorService.isReady(),
+      cache: redisCacheService?.isReady() || false,
+      memory: redisMemoryService?.isReady() || false,
+      vector: redisVectorService?.isReady() || false,
     };
   }
 
